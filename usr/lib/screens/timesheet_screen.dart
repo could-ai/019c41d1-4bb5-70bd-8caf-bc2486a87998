@@ -1,5 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart'; // We'll use basic formatting manually if intl isn't available, but usually it is. I'll write helper functions to be safe.
+import 'package:http/http.dart' as http;
 import '../models/time_entry.dart';
 
 class TimesheetScreen extends StatefulWidget {
@@ -12,6 +13,10 @@ class TimesheetScreen extends StatefulWidget {
 class _TimesheetScreenState extends State<TimesheetScreen> {
   final List<TimeEntry> _entries = [];
   final ScrollController _horizontalController = ScrollController();
+  
+  // Default URL placeholder - User should replace this
+  final TextEditingController _urlController = TextEditingController(text: '');
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -83,6 +88,88 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
     }
   }
 
+  Future<void> _submitData() async {
+    if (_urlController.text.isEmpty) {
+      _showUrlDialog();
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      final url = Uri.parse(_urlController.text.trim());
+      final body = jsonEncode({
+        "entries": _entries.map((e) => e.toJson()).toList(),
+      });
+
+      // Google Apps Script Web App redirects, so we need to follow redirects or handle CORS.
+      // For simple POST requests from Flutter Web, standard http.post usually works if CORS is handled by GAS (it is by default for simple requests).
+      final response = await http.post(
+        url,
+        body: body,
+        // Sometimes GAS requires following redirects explicitly, but http package handles it.
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 302) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Successfully saved to Google Sheets!'), backgroundColor: Colors.green),
+          );
+        }
+      } else {
+        throw Exception('Failed with status: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  void _showUrlDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Google Apps Script URL'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Please enter your deployed Web App URL:'),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _urlController,
+              decoration: const InputDecoration(
+                hintText: 'https://script.google.com/macros/s/...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              if (_urlController.text.isNotEmpty) {
+                _submitData();
+              }
+            },
+            child: const Text('Save & Submit'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -91,12 +178,19 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
-            icon: const Icon(Icons.save),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Timesheet saved (mock)')),
-              );
-            },
+            icon: const Icon(Icons.settings),
+            onPressed: _showUrlDialog,
+            tooltip: 'Configure Google Sheet URL',
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: FilledButton.icon(
+              icon: _isSaving 
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+                : const Icon(Icons.cloud_upload),
+              label: const Text('Submit to Sheets'),
+              onPressed: _isSaving ? null : _submitData,
+            ),
           )
         ],
       ),

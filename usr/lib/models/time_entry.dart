@@ -31,4 +31,16 @@ class TimeEntry {
     
     return diff / 60.0;
   }
+
+  // Convert to JSON for API submission
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'date': date.toIso8601String().split('T')[0], // YYYY-MM-DD
+      'startTime': startTime != null ? '${startTime!.hour}:${startTime!.minute}' : '',
+      'endTime': endTime != null ? '${endTime!.hour}:${endTime!.minute}' : '',
+      'description': description,
+      'duration': duration,
+    };
+  }
 }
